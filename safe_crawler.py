@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""零风险爆款文案抓取 - GitHub Actions 版"""
+"""零风险爆款文案抓取 - 支持钉钉AI表格"""
 
 import json
 import os
@@ -18,8 +18,9 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 DINGTALK_APP_KEY = os.getenv("DINGTALK_APP_KEY", "")
 DINGTALK_APP_SECRET = os.getenv("DINGTALK_APP_SECRET", "")
+DINGTALK_BASE_ID = os.getenv("DINGTALK_BASE_ID", "")
 DINGTALK_SHEET_ID = os.getenv("DINGTALK_SHEET_ID", "")
-DINGTALK_SHEET_NAME = os.getenv("DINGTALK_SHEET_NAME", "Sheet1")
+DINGTALK_OPERATOR_ID = os.getenv("DINGTALK_OPERATOR_ID", "")
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 
@@ -69,17 +70,17 @@ class TopHubCrawler:
                     title = self._clean_title(title)
                     if title and len(title) >= 5:
                         results.append({
-                            "platform": node_name,
-                            "topic": "热榜",
-                            "content": title,
-                            "likes": hot_text,
-                            "author": "",
-                            "link": link,
-                            "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            "tags": node_info["category"],
-                            "hooks": self._extract_hooks(title),
-                            "structure": "热榜标题",
-                            "rank": rank
+                            "平台": node_name,
+                            "主题": "热榜",
+                            "文案内容": title,
+                            "热度": hot_text,
+                            "作者": "",
+                            "链接": link,
+                            "抓取时间": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "标签": node_info["category"],
+                            "钩子模板": self._extract_hooks(title),
+                            "结构类型": "热榜标题",
+                            "排名": rank
                         })
                 except:
                     continue
@@ -128,16 +129,16 @@ class ZhihuCrawler:
                     detail = card.get('detail_text', '0')
                     if title:
                         results.append({
-                            "platform": "知乎",
-                            "topic": "热榜问答",
-                            "content": title,
-                            "likes": detail,
-                            "author": "",
-                            "link": link,
-                            "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            "tags": "问答",
-                            "hooks": "疑问式" if "?" in title else "讨论型",
-                            "structure": "问题式钩子"
+                            "平台": "知乎",
+                            "主题": "热榜问答",
+                            "文案内容": title,
+                            "热度": detail,
+                            "作者": "",
+                            "链接": link,
+                            "抓取时间": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "标签": "问答",
+                            "钩子模板": "疑问式" if "?" in title else "讨论型",
+                            "结构类型": "问题式钩子"
                         })
                 except:
                     continue
@@ -171,17 +172,17 @@ class WeiboCrawler:
                         tag = '新'
                     if title:
                         results.append({
-                            "platform": "微博",
-                            "topic": tag,
-                            "content": title,
-                            "likes": str(hot),
-                            "author": "",
-                            "link": link,
-                            "fetch_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            "tags": f"微博{tag}",
-                            "hooks": "热点型",
-                            "structure": "热搜标题",
-                            "rank": rank
+                            "平台": "微博",
+                            "主题": tag,
+                            "文案内容": title,
+                            "热度": str(hot),
+                            "作者": "",
+                            "链接": link,
+                            "抓取时间": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "标签": f"微博{tag}",
+                            "钩子模板": "热点型",
+                            "结构类型": "热搜标题",
+                            "排名": rank
                         })
                 except:
                     continue
@@ -191,10 +192,12 @@ class WeiboCrawler:
             print(f"❌ 失败({e})")
             return []
 
-class DingTalkAPI:
-    def __init__(self, app_key, app_secret):
+class DingTalkAISheetAPI:
+    def __init__(self, app_key, app_secret, base_id, operator_id):
         self.app_key = app_key
         self.app_secret = app_secret
+        self.base_id = base_id
+        self.operator_id = operator_id
         self.access_token = self._get_token()
     def _get_token(self):
         url = "https://oapi.dingtalk.com/gettoken"
@@ -204,34 +207,59 @@ class DingTalkAPI:
         if data.get("errcode") != 0:
             raise Exception(f"Token失败: {data}")
         return data["access_token"]
-    def append_sheet(self, sheet_id, sheet_name, rows):
-        if not rows:
+    def batch_add_records(self, sheet_id_or_name, records):
+        if not records:
             return True
-        url = f"https://oapi.dingtalk.com/v1.0/doc/workbooks/{sheet_id}/sheets/{sheet_name}/appendData"
-        headers = {"x-acs-dingtalk-access-token": self.access_token, "Content-Type": "application/json"}
-        payload = {"values": rows, "valueRenderOption": "FORMATTED_VALUE"}
+        url = f"https://oapi.dingtalk.com/smartwork/sheet/v2/tables/records/batch_add?access_token={self.access_token}"
+        formatted_records = []
+        for record in records:
+            fields = []
+            for column_key, value in record.items():
+                fields.append({
+                    "columnKey": column_key,
+                    "value": str(value) if value is not None else ""
+                })
+            formatted_records.append({"fields": fields})
+        payload = {
+            "sheetId": self.base_id,
+            "tableId": sheet_id_or_name,
+            "records": formatted_records
+        }
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=15)
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=60
+            )
             result = resp.json()
-            success = result.get("success") or "rowCount" in str(result)
-            if success:
-                print(f"✅ 钉钉写入 {len(rows)} 行")
-            return success
+            if result.get("errcode") == 0:
+                print(f"✅ 钉钉AI表格写入 {len(records)} 条成功")
+                return True
+            else:
+                print(f"⚠️ 钉钉AI表格写入异常: {result.get('errmsg', str(result))}")
+                return False
         except Exception as e:
-            print(f"❌ 钉钉失败: {e}")
+            print(f"❌ 钉钉AI表格API调用失败: {e}")
             return False
 
 class SafePipeline:
     def __init__(self):
         self.dingtalk = None
-        if DINGTALK_APP_KEY and DINGTALK_APP_SECRET and DINGTALK_SHEET_ID:
+        if DINGTALK_APP_KEY and DINGTALK_APP_SECRET and DINGTALK_BASE_ID and DINGTALK_OPERATOR_ID:
             try:
-                self.dingtalk = DingTalkAPI(DINGTALK_APP_KEY, DINGTALK_APP_SECRET)
-                print("✅ 钉钉已连接")
+                self.dingtalk = DingTalkAISheetAPI(
+                    DINGTALK_APP_KEY,
+                    DINGTALK_APP_SECRET,
+                    DINGTALK_BASE_ID,
+                    DINGTALK_OPERATOR_ID
+                )
+                print("✅ 钉钉AI表格已连接")
             except Exception as e:
-                print(f"⚠️ 钉钉未连接: {e}")
+                print(f"⚠️ 钉钉AI表格未连接: {e}")
         else:
-            print("ℹ️ 仅本地模式（未配置钉钉）")
+            print("ℹ️ 仅本地模式（未配置钉钉AI表格）")
+            print("   如需接入，请配置 Secrets: DINGTALK_APP_KEY, DINGTALK_APP_SECRET, DINGTALK_BASE_ID, DINGTALK_SHEET_ID, DINGTALK_OPERATOR_ID")
     def run(self, platforms=None):
         all_data = []
         tophub = TopHubCrawler()
@@ -255,16 +283,14 @@ class SafePipeline:
         with open(latest_file, 'w', encoding='utf-8') as f:
             json.dump(all_data, f, ensure_ascii=False, indent=2)
         print(f"💾 最新汇总: {latest_file}")
-        if all_data and self.dingtalk:
-            rows = [[d['platform'], d['topic'], d['content'], str(d['likes']),
-                     d['author'], d['link'], d['fetch_time'], d['tags'],
-                     d['hooks'], d['structure']] for d in all_data]
-            self.dingtalk.append_sheet(DINGTALK_SHEET_ID, DINGTALK_SHEET_NAME, rows)
+        if all_data and self.dingtalk and DINGTALK_SHEET_ID:
+            self.dingtalk.batch_add_records(DINGTALK_SHEET_ID, all_data)
         return all_data
 
 if __name__ == '__main__':
     print("=" * 50)
-    print("🚀 零风险爆款文案抓取系统 - GitHub Actions")
+    print("🚀 零风险爆款文案抓取系统")
+    print("   支持钉钉AI表格（智能表格/多维表格）")
     print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 50)
     pipeline = SafePipeline()
