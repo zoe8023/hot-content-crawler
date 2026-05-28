@@ -21,8 +21,9 @@ jobs:
         env:
           DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
           DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
+          DINGTALK_BASE_ID: ${{ secrets.DINGTALK_BASE_ID }}
           DINGTALK_SHEET_ID: ${{ secrets.DINGTALK_SHEET_ID }}
-          DINGTALK_SHEET_NAME: ${{ secrets.DINGTALK_SHEET_NAME || 'Sheet1' }}
+          DINGTALK_OPERATOR_ID: ${{ secrets.DINGTALK_OPERATOR_ID }}
         run: python safe_crawler.py
       - name: Commit data
         run: |
