@@ -1,0 +1,33 @@
+name: 每日爆款文案抓取
+
+on:
+  schedule:
+    - cron: '0 1,13 * * *'
+  workflow_dispatch:
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install requests beautifulsoup4
+      - name: Run crawler
+        env:
+          DINGTALK_APP_KEY: ${{ secrets.DINGTALK_APP_KEY }}
+          DINGTALK_APP_SECRET: ${{ secrets.DINGTALK_APP_SECRET }}
+          DINGTALK_SHEET_ID: ${{ secrets.DINGTALK_SHEET_ID }}
+          DINGTALK_SHEET_NAME: ${{ secrets.DINGTALK_SHEET_NAME || 'Sheet1' }}
+        run: python safe_crawler.py
+      - name: Commit data
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add data/
+          git diff --cached --quiet || git commit -m "auto: $(date +%Y-%m-%d_%H:%M)"
+          git push
